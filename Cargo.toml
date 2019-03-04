@@ -6,6 +6,8 @@ edition = "2018"
 
 [dependencies]
 clap = "*"
+log = "*"
+stderrlog = "*"
 hyper = "*"
 robots_txt = "*"
 exit = "*"
