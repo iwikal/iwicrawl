@@ -46,17 +46,32 @@ fn main() -> Exit<CliError> {
         .init()
         .unwrap();
 
+    use hyper::Uri;
     let uri = matches.value_of("URI").unwrap();
-    let current_url = Url::parse(uri)
+    let uri = uri.parse::<Uri>()
+        .map_err(|e| CliError(format!("invalid url '{}': {}", uri, e)))?;
+    let mut parts = uri.into_parts();
+
+    if parts.scheme == None {
+        parts.scheme = Some(hyper::http::uri::Scheme::HTTP);
+    }
+    if parts.path_and_query == None {
+        parts.path_and_query = Some(hyper::http::uri::PathAndQuery::from_static("/"));
+    }
+
+    let uri = Uri::from_parts(parts)
+        .map_err(|e| CliError(format!("{}", e)))?;
+    let current_url = Url::parse(&uri.to_string())
         .map_err(|e| {
-            CliError(format!("'{}': {}", uri, e))
+            CliError(format!("invalid url '{}': {}", uri, e))
         })?;
     let client = Client::new();
     let client = Box::leak(Box::new(client));
-    let fut = fetch::traverse(client, current_url)
+    let start = std::time::Instant::now();
+    let fut = fetch::get_directory(client, current_url)
         .map_err(|e| error!("{}", e))
-        .map(|n| {
-            println!("Result: {}", n);
+        .map(move |_n| {
+            eprintln!("Finished in {}ms", start.elapsed().as_millis());
         });
     rt::run(fut);
     Exit::Ok
