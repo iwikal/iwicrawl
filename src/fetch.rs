@@ -72,6 +72,34 @@ fn peek_file(client: &'static MyClient, url: Url) -> FutBox {
     Box::new(fut)
 }
 
+fn handle_html_dir(
+    client: &'static MyClient,
+    body: hyper::Chunk,
+    url: Url,
+) -> Result<impl Future<Item = u64, Error = CliError> + Send, CliError> {
+    let subdirs =
+        extract_subdirs(body, url).map_err(|e| CliError(format!("failed to parse body: {}", e)))?;
+    let SubdirTok { paths, current_url } = subdirs;
+    let subfutures = {
+        let current_url = current_url.clone();
+        paths.into_iter().map(move |path| {
+            let path_str = &path.to_string();
+            let next_url = current_url.join(path_str).unwrap();
+            if path_str.ends_with("/") {
+                get_directory(client, next_url)
+            } else {
+                peek_file(client, next_url)
+            }
+        })
+    };
+    let sum_children = join_all(subfutures).map(move |subdirs| {
+        let sum = subdirs.iter().fold(0, |acc, cur| acc + cur);
+        println!("{:<8} {}", sum, current_url);
+        sum
+    });
+    Ok(sum_children)
+}
+
 fn get_directory(client: &'static MyClient, url: Url) -> FutBox {
     info!("getting {}", url);
     let fut = follow_redirects(client, Method::GET, url)
@@ -88,29 +116,7 @@ fn get_directory(client: &'static MyClient, url: Url) -> FutBox {
                     .into_body()
                     .concat2()
                     .map_err(|e| CliError(format!("{}", e)))
-                    .and_then(move |body| {
-                        let subdirs = extract_subdirs(body, redirected_url)
-                            .map_err(|e| CliError(format!("failed to parse body: {}", e)))?;
-                        let SubdirTok { paths, current_url } = subdirs;
-                        let subfutures = {
-                            let current_url = current_url.clone();
-                            paths.into_iter().map(move |path| {
-                                let path_str = &path.to_string();
-                                let next_url = current_url.join(path_str).unwrap();
-                                if path_str.ends_with("/") {
-                                    get_directory(client, next_url)
-                                } else {
-                                    peek_file(client, next_url)
-                                }
-                            })
-                        };
-                        let sum_children = join_all(subfutures).map(move |subdirs| {
-                            let sum = subdirs.iter().fold(0, |acc, cur| acc + cur);
-                            println!("{:<8} {}", sum, current_url);
-                            sum
-                        });
-                        Ok(sum_children)
-                    });
+                    .and_then(move |body| handle_html_dir(client, body, redirected_url));
                 Ok(fut)
             } else {
                 // TODO: Other content types such as json
