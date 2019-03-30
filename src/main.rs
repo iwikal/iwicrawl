@@ -7,7 +7,6 @@ extern crate html5ever;
 
 use clap::{App, Arg};
 use error::CliError;
-use exit::Exit;
 use hyper::rt::{self, Future};
 use url::Url;
 
@@ -15,7 +14,7 @@ mod error;
 mod fetch;
 mod tok;
 
-fn main() -> Exit<CliError> {
+fn main() -> Result<(), CliError> {
     let matches = App::new(env!("CARGO_PKG_NAME"))
         .version(env!("CARGO_PKG_VERSION"))
         .author(env!("CARGO_PKG_AUTHORS"))
@@ -67,5 +66,5 @@ fn main() -> Exit<CliError> {
             eprintln!("Finished in {}ms", start.elapsed().as_millis());
         });
     rt::run(fut);
-    Exit::Ok
+    Ok(())
 }
