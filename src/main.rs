@@ -7,7 +7,6 @@ extern crate html5ever;
 
 use clap::{App, Arg};
 use error::CliError;
-use hyper::rt::{self, Future};
 use url::Url;
 
 mod error;
@@ -60,11 +59,15 @@ fn main() -> Result<(), CliError> {
     let current_url = Url::parse(&uri.to_string())
         .map_err(|e| CliError(format!("invalid url '{}': {}", uri, e)))?;
     let start = std::time::Instant::now();
-    let fut = fetch::crawl(current_url)
-        .map_err(|e| error!("{}", e))
-        .map(move |_n| {
+    let mut rt = tokio::runtime::Runtime::new().unwrap();
+    let fut = fetch::crawl(current_url);
+    match rt.block_on(fut) {
+        Err(e) => {
+            error!("{}", e);
+        }
+        Ok(_) => {
             eprintln!("Finished in {}ms", start.elapsed().as_millis());
-        });
-    rt::run(fut);
+        }
+    }
     Ok(())
 }
