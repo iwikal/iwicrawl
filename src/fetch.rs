@@ -53,12 +53,12 @@ fn follow_redirects(client: &'static MyClient, method: Method, url: Url)
     })
 }
 
-fn peek_file(client: &'static MyClient, url: Url)
-    -> Box<dyn Future<Item=u64, Error=CliError> + Send>
-{
+type FutBox = Box<dyn Future<Item=u64, Error=CliError> + Send>;
+
+fn peek_file(client: &'static MyClient, url: Url) -> FutBox {
     let fut = follow_redirects(client, Method::HEAD, url);
     let fut = fut
-        .map(|(redirected_url, res)| {
+        .and_then(|(redirected_url, res)| {
             let headers = res.headers();
             let bytes = headers[CONTENT_LENGTH]
                 .to_str()
@@ -72,15 +72,13 @@ fn peek_file(client: &'static MyClient, url: Url)
             println!("{:<8} {}", bytes, redirected_url);
             Ok(bytes)
         });
-    Box::new(fut.flatten())
+    Box::new(fut)
 }
 
-pub fn get_directory(client: &'static MyClient, url: Url)
-    -> Box<dyn Future<Item=u64, Error=CliError> + Send>
-{
+fn get_directory(client: &'static MyClient, url: Url) -> FutBox {
     info!("getting {}", url);
     let fut = follow_redirects(client, Method::GET, url)
-        .map(move |(redirected_url, res)| {
+        .and_then(move |(redirected_url, res)| {
             let headers = res.headers();
             let content_type = headers
                 .get(CONTENT_TYPE)
@@ -128,9 +126,14 @@ pub fn get_directory(client: &'static MyClient, url: Url)
                 Err(CliError(format!("{}: unrecognised content type '{}'", redirected_url, content_type)))
             }
         })
-    .flatten()
-    .flatten()
-    .flatten();
+        .flatten()
+        .flatten();
 
     Box::new(fut)
+}
+
+pub fn crawl (url: Url) -> FutBox {
+    let client = Client::new();
+    let client = Box::leak(Box::new(client));
+    get_directory(client, url)
 }

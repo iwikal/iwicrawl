@@ -12,7 +12,6 @@ extern crate url;
 extern crate futures;
 
 use clap::{App, Arg};
-use hyper::Client;
 use hyper::rt::{self, Future};
 use exit::Exit;
 use url::Url;
@@ -65,10 +64,8 @@ fn main() -> Exit<CliError> {
         .map_err(|e| {
             CliError(format!("invalid url '{}': {}", uri, e))
         })?;
-    let client = Client::new();
-    let client = Box::leak(Box::new(client));
     let start = std::time::Instant::now();
-    let fut = fetch::get_directory(client, current_url)
+    let fut = fetch::crawl(current_url)
         .map_err(|e| error!("{}", e))
         .map(move |_n| {
             eprintln!("Finished in {}ms", start.elapsed().as_millis());
