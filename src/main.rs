@@ -1,19 +1,12 @@
 #![warn(bare_trait_objects)]
 
-extern crate clap;
 #[macro_use]
 extern crate log;
-extern crate exit;
-extern crate hyper;
-extern crate robots_txt;
-extern crate stderrlog;
-extern crate toks;
 #[macro_use]
 extern crate html5ever;
-extern crate futures;
-extern crate url;
 
 use clap::{App, Arg};
+use error::CliError;
 use exit::Exit;
 use hyper::rt::{self, Future};
 use url::Url;
@@ -21,7 +14,6 @@ use url::Url;
 mod error;
 mod fetch;
 mod tok;
-use error::CliError;
 
 fn main() -> Exit<CliError> {
     let matches = App::new(env!("CARGO_PKG_NAME"))
