@@ -1,9 +1,9 @@
-use toks::{Tok, recursion};
-use html5ever::tendril::{self, Tendril, TendrilSink, NonAtomic};
-use html5ever::rcdom::{Handle, RcDom};
 use html5ever::parse_document;
-use url::Url;
+use html5ever::rcdom::{Handle, RcDom};
+use html5ever::tendril::{self, NonAtomic, Tendril, TendrilSink};
 use toks::prelude::*;
+use toks::{recursion, Tok};
+use url::Url;
 
 #[derive(Debug)]
 pub struct SubdirTok {
@@ -15,13 +15,12 @@ impl SubdirTok {
     pub fn new(current_url: Url) -> Self {
         Self {
             current_url,
-            paths: Default::default()
+            paths: Default::default(),
         }
     }
 
     pub fn from_body(url: Url, body: &str) -> Self {
-        let dom = parse_document(RcDom::default(), Default::default())
-            .one(body);
+        let dom = parse_document(RcDom::default(), Default::default()).one(body);
         let mut subdir_tok = SubdirTok::new(url);
         recursion(&mut vec![&mut subdir_tok], dom.document);
         subdir_tok
@@ -29,20 +28,17 @@ impl SubdirTok {
 }
 
 fn normalize_path(segments: core::str::Split<char>) -> Option<Vec<&str>> {
-    {segments}
-        .try_fold(Vec::new(), |mut acc, cur| {
-            match cur {
-                "" | "." => Some(acc),
-                ".." => {
-                    acc.pop()?;
-                    Some(acc)
-                },
-                _ => {
-                    acc.push(cur);
-                    Some(acc)
-                }
-            }
-        })
+    { segments }.try_fold(Vec::new(), |mut acc, cur| match cur {
+        "" | "." => Some(acc),
+        ".." => {
+            acc.pop()?;
+            Some(acc)
+        }
+        _ => {
+            acc.push(cur);
+            Some(acc)
+        }
+    })
 }
 
 impl Tok for SubdirTok {
@@ -51,23 +47,15 @@ impl Tok for SubdirTok {
     }
 
     fn process(&mut self, attribs: RefCell<Vec<Attribute>>, _: RefCell<Vec<Handle>>) {
-        let SubdirTok {
-            paths,
-            current_url,
-        } = self;
+        let SubdirTok { paths, current_url } = self;
 
-        let current_path = normalize_path({
-            current_url
-                .path_segments()
-                .unwrap()
-        }).expect("invalid path");
+        let current_path =
+            normalize_path({ current_url.path_segments().unwrap() }).expect("invalid path");
 
         attribs
             .into_inner()
             .into_iter()
-            .filter(|attrib| {
-                attrib.name.local == local_name!("href")
-            })
+            .filter(|attrib| attrib.name.local == local_name!("href"))
             .for_each(|href| {
                 let s = &href.value.to_string();
                 // TODO: more efficient url parsing
@@ -75,34 +63,34 @@ impl Tok for SubdirTok {
                     Ok(url) => url,
                     Err(e) => {
                         eprintln!("Error parsing '{}': {}", s, e);
-                        return
+                        return;
                     }
                 };
-                if url.scheme() != current_url.scheme() ||
-                    url.host_str() != current_url.host_str() ||
-                        url.port_or_known_default().unwrap() != current_url.port_or_known_default().unwrap() {
-                            return
-                        }
+                if url.scheme() != current_url.scheme()
+                    || url.host_str() != current_url.host_str()
+                    || url.port_or_known_default().unwrap()
+                        != current_url.port_or_known_default().unwrap()
+                {
+                    return;
+                }
 
                 let mut segments = match url.path_segments() {
                     Some(x) => x,
-                    None => return
+                    None => return,
                 };
-                match segments.try_fold(0_u32, |acc, cur| {
-                    match cur {
-                        "" | "." => Some(acc),
-                        ".." => acc.checked_sub(1),
-                        _ => {
-                            if let Some(seg) = current_path.get(acc as usize) {
-                                if seg != &cur {
-                                    return None;
-                                }
+                match segments.try_fold(0_u32, |acc, cur| match cur {
+                    "" | "." => Some(acc),
+                    ".." => acc.checked_sub(1),
+                    _ => {
+                        if let Some(seg) = current_path.get(acc as usize) {
+                            if seg != &cur {
+                                return None;
                             }
-                            Some(acc + 1)
-                        },
+                        }
+                        Some(acc + 1)
                     }
                 }) {
-                    Some(depth) if depth > current_path.len() as u32 => {},
+                    Some(depth) if depth > current_path.len() as u32 => {}
                     _ => {
                         return;
                     }
