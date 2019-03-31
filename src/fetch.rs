@@ -3,6 +3,7 @@ use crate::tok::SubdirTok;
 use futures::future::*;
 use hyper::http::Method;
 use hyper::{header::*, rt::Stream, Client, Request, Response};
+use hyper_tls::HttpsConnector;
 use url::Url;
 
 fn extract_subdirs(body: hyper::Chunk, url: Url) -> Result<SubdirTok, CliError> {
@@ -11,7 +12,7 @@ fn extract_subdirs(body: hyper::Chunk, url: Url) -> Result<SubdirTok, CliError> 
     Ok(SubdirTok::from_body(url, s))
 }
 
-type MyClient = Client<hyper::client::HttpConnector>;
+type MyClient = Client<HttpsConnector<hyper::client::HttpConnector>>;
 
 const MAX_REDIRECTIONS: u8 = 16;
 fn follow_redirects(
@@ -142,7 +143,8 @@ fn get_directory(client: &'static MyClient, url: Url) -> FutBox {
 }
 
 pub fn crawl(url: Url) -> FutBox {
-    let client = Client::new();
+    let connector = HttpsConnector::new(4).unwrap();
+    let client = Client::builder().build::<_, hyper::Body>(connector);
     let client = Box::leak(Box::new(client));
     get_directory(client, url)
 }
