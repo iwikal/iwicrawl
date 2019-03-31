@@ -73,7 +73,7 @@ impl Tok for SubdirTok {
                         url
                     }
                     Err(e) => {
-                        eprintln!("Error parsing '{}': {}", s, e);
+                        error!("Can't parse href=\"{}\": {}", s, e);
                         return;
                     }
                 };

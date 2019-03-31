@@ -6,8 +6,8 @@ use hyper::{header::*, rt::Stream, Client, Request, Response};
 use url::Url;
 
 fn extract_subdirs(body: hyper::Chunk, url: Url) -> Result<SubdirTok, CliError> {
-    let s =
-        std::str::from_utf8(&body).map_err(|e| CliError(format!("error parsing body: {}", e)))?;
+    let s = std::str::from_utf8(&body)
+        .map_err(|e| CliError(format!("'{}': failed to parse body: {}", url, e)))?;
     Ok(SubdirTok::from_body(url, s))
 }
 
@@ -38,10 +38,12 @@ fn follow_redirects(
                     Ok(Loop::Break((url, res)))
                 } else if status.is_redirection() {
                     if redirections_acc >= MAX_REDIRECTIONS {
-                        Err(CliError(format!("too many redirections")))
+                        Err(CliError(format!("'{}': too many redirections", url)))
                     } else {
                         let headers = res.headers();
-                        let s = headers[LOCATION]
+                        let s = headers
+                            .get(LOCATION)
+                            .ok_or_else(|| CliError(format!("'{}': redirected to nowhere", url)))?
                             .to_str()
                             .map_err(|e| CliError(format!("{}", e)))?;
                         let new_url = Url::parse(s).map_err(|e| CliError(format!("{}", e)))?;
@@ -49,7 +51,7 @@ fn follow_redirects(
                         Ok(Loop::Continue((new_url, redirections_acc + 1)))
                     }
                 } else {
-                    Err(CliError(format!("{} {}", status, url)))
+                    Err(CliError(format!("'{}': {}", url, status)))
                 }
             })
     })
@@ -61,12 +63,14 @@ fn peek_file(client: &'static MyClient, url: Url) -> FutBox {
     let fut = follow_redirects(client, Method::HEAD, url);
     let fut = fut.and_then(|(redirected_url, res)| {
         let headers = res.headers();
-        let bytes = headers[CONTENT_LENGTH]
+        let bytes = headers
+            .get(CONTENT_LENGTH)
+            .ok_or_else(|| CliError(format!("'{}': content length missing", redirected_url)))?
             .to_str()
             .map_err(|e| CliError(format!("can't parse content length header: {}", e)))?
             .parse::<u64>()
             .map_err(|e| CliError(format!("can't parse content length header: {}", e)))?;
-        println!("{:<8} {}", bytes, redirected_url);
+        println!("{:<20} {}", bytes, redirected_url);
         Ok(bytes)
     });
     Box::new(fut)
@@ -77,8 +81,7 @@ fn handle_html_dir(
     body: hyper::Chunk,
     url: Url,
 ) -> Result<impl Future<Item = u64, Error = CliError> + Send, CliError> {
-    let subdirs =
-        extract_subdirs(body, url).map_err(|e| CliError(format!("failed to parse body: {}", e)))?;
+    let subdirs = extract_subdirs(body, url)?;
     let SubdirTok {
         paths, current_url, ..
     } = subdirs;
@@ -100,7 +103,7 @@ fn handle_html_dir(
     };
     let sum_children = join_all(subfutures).map(move |subdirs| {
         let sum = subdirs.iter().fold(0, |acc, cur| acc + cur);
-        println!("{:<8} {}", sum, current_url);
+        println!("{:<20} {}", sum, current_url);
         sum
     });
     Ok(sum_children)
@@ -127,7 +130,7 @@ fn get_directory(client: &'static MyClient, url: Url) -> FutBox {
             } else {
                 // TODO: Other content types such as json
                 Err(CliError(format!(
-                    "{}: unrecognised content type '{}'",
+                    "'{}': unrecognised content type '{}'",
                     redirected_url, content_type
                 )))
             }
