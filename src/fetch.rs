@@ -47,7 +47,7 @@ fn follow_redirects(
                             .ok_or_else(|| CliError(format!("'{}': redirected to nowhere", url)))?
                             .to_str()
                             .map_err(|e| CliError(format!("{}", e)))?;
-                        let new_url = Url::parse(s).map_err(|e| CliError(format!("{}", e)))?;
+                        let new_url = url.join(s).map_err(|e| CliError(format!("{}", e)))?;
                         info!("{} redirected to {}: {}", url, new_url, status);
                         Ok(Loop::Continue((new_url, redirections_acc + 1)))
                     }
