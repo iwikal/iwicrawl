@@ -1,14 +1,15 @@
 use crate::error::CliError;
 use crate::tok::SubdirTok;
+use failure::{Error, Fail};
 use futures::future::*;
 use hyper::http::Method;
 use hyper::{header::*, rt::Stream, Client, Request, Response};
 use hyper_tls::HttpsConnector;
 use url::Url;
 
-fn extract_subdirs(body: hyper::Chunk, url: Url) -> Result<SubdirTok, CliError> {
+fn extract_subdirs(body: hyper::Chunk, url: Url) -> Result<SubdirTok, Error> {
     let s = std::str::from_utf8(&body)
-        .map_err(|e| CliError(format!("'{}': failed to parse body: {}", url, e)))?;
+        .map_err(|e| e.context(format!("'{}': failed to parse body", url)))?;
     Ok(SubdirTok::from_body(url, s))
 }
 
@@ -19,7 +20,7 @@ fn follow_redirects(
     client: &'static MyClient,
     method: Method,
     url: Url,
-) -> impl Future<Item = (Url, Response<hyper::Body>), Error = CliError> {
+) -> impl Future<Item = (Url, Response<hyper::Body>), Error = Error> {
     loop_fn((url, 0), move |(url, redirections_acc)| {
         use hyper::Uri;
         let uri: Uri = url.to_string().parse().unwrap();
@@ -31,7 +32,7 @@ fn follow_redirects(
 
         client
             .request(request)
-            .map_err(move |e| CliError(format!("'{}': {}", uri, e)))
+            .map_err(move |e| e.context(format!("'{}'", uri)).into())
             .and_then(move |res| {
                 let status = res.status();
 
@@ -39,26 +40,25 @@ fn follow_redirects(
                     Ok(Loop::Break((url, res)))
                 } else if status.is_redirection() {
                     if redirections_acc >= MAX_REDIRECTIONS {
-                        Err(CliError(format!("'{}': too many redirections", url)))
+                        Err(CliError(format!("'{}': too many redirections", url)).into())
                     } else {
                         let headers = res.headers();
                         let s = headers
                             .get(LOCATION)
                             .ok_or_else(|| CliError(format!("'{}': redirected to nowhere", url)))?
-                            .to_str()
-                            .map_err(|e| CliError(format!("{}", e)))?;
-                        let new_url = url.join(s).map_err(|e| CliError(format!("{}", e)))?;
+                            .to_str()?;
+                        let new_url = url.join(s)?;
                         info!("{} redirected to {}: {}", url, new_url, status);
                         Ok(Loop::Continue((new_url, redirections_acc + 1)))
                     }
                 } else {
-                    Err(CliError(format!("'{}': {}", url, status)))
+                    Err(CliError(format!("'{}': {}", url, status)).into())
                 }
             })
     })
 }
 
-type FutBox = Box<dyn Future<Item = u64, Error = CliError> + Send>;
+type FutBox = Box<dyn Future<Item = u64, Error = Error> + Send>;
 
 fn peek_file(client: &'static MyClient, url: Url) -> FutBox {
     let fut = follow_redirects(client, Method::HEAD, url);
@@ -66,11 +66,9 @@ fn peek_file(client: &'static MyClient, url: Url) -> FutBox {
         let headers = res.headers();
         let bytes = headers
             .get(CONTENT_LENGTH)
-            .ok_or_else(|| CliError(format!("'{}': content length missing", redirected_url)))?
-            .to_str()
-            .map_err(|e| CliError(format!("can't parse content length header: {}", e)))?
-            .parse::<u64>()
-            .map_err(|e| CliError(format!("can't parse content length header: {}", e)))?;
+            .ok_or_else(|| CliError(format!("content length missing")))?
+            .to_str()?
+            .parse::<u64>()?;
         println!("{:<20} {}", bytes, redirected_url);
         Ok(bytes)
     });
@@ -81,7 +79,7 @@ fn handle_html_dir(
     client: &'static MyClient,
     body: hyper::Chunk,
     url: Url,
-) -> Result<impl Future<Item = u64, Error = CliError> + Send, CliError> {
+) -> Result<impl Future<Item = u64, Error = Error> + Send, Error> {
     let subdirs = extract_subdirs(body, url)?;
     let SubdirTok {
         paths, current_url, ..
@@ -97,7 +95,15 @@ fn handle_html_dir(
                 peek_file(client, next_url)
             }
             .or_else(|e| {
-                error!("{}", e);
+                let f = e.as_fail();
+                match f.cause() {
+                    Some(cause) => {
+                        error!("{}: {}", e, cause);
+                    }
+                    None => {
+                        error!("{}", e);
+                    }
+                }
                 Ok(0)
             })
         })
@@ -118,14 +124,13 @@ fn get_directory(client: &'static MyClient, url: Url) -> FutBox {
             let content_type = headers
                 .get(CONTENT_TYPE)
                 .ok_or_else(|| CliError(format!("content type missing")))?
-                .to_str()
-                .map_err(|e| CliError(format!("{}", e)))?;
+                .to_str()?;
             debug!("content type {}", content_type);
             if content_type.starts_with("text/html") {
                 let fut = res
                     .into_body()
                     .concat2()
-                    .map_err(|e| CliError(format!("{}", e)))
+                    .map_err(|e| e.into())
                     .and_then(move |body| handle_html_dir(client, body, redirected_url));
                 Ok(fut)
             } else {
@@ -133,7 +138,8 @@ fn get_directory(client: &'static MyClient, url: Url) -> FutBox {
                 Err(CliError(format!(
                     "'{}': unrecognised content type '{}'",
                     redirected_url, content_type
-                )))
+                ))
+                .into())
             }
         })
         .flatten()

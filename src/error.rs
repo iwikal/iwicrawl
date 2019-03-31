@@ -1,3 +1,4 @@
+#[derive(Debug, Fail)]
 pub struct CliError(pub String);
 
 impl Into<i32> for CliError {
@@ -7,14 +8,9 @@ impl Into<i32> for CliError {
 }
 
 use core::fmt;
-impl fmt::Debug for CliError {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{}", self.0)
-    }
-}
 
 impl fmt::Display for CliError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{:?}", self)
+        write!(f, "{}", self.0)
     }
 }
