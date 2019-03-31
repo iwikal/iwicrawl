@@ -92,6 +92,10 @@ fn handle_html_dir(
             } else {
                 peek_file(client, next_url)
             }
+            .or_else(|e| {
+                error!("{}", e);
+                Ok(0)
+            })
         })
     };
     let sum_children = join_all(subfutures).map(move |subdirs| {
