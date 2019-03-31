@@ -79,7 +79,9 @@ fn handle_html_dir(
 ) -> Result<impl Future<Item = u64, Error = CliError> + Send, CliError> {
     let subdirs =
         extract_subdirs(body, url).map_err(|e| CliError(format!("failed to parse body: {}", e)))?;
-    let SubdirTok { paths, current_url } = subdirs;
+    let SubdirTok {
+        paths, current_url, ..
+    } = subdirs;
     let subfutures = {
         let current_url = current_url.clone();
         paths.into_iter().map(move |path| {

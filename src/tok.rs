@@ -1,6 +1,7 @@
 use html5ever::parse_document;
 use html5ever::rcdom::{Handle, RcDom};
 use html5ever::tendril::{self, NonAtomic, Tendril, TendrilSink};
+use std::collections::HashSet;
 use toks::prelude::*;
 use toks::{recursion, Tok};
 use url::Url;
@@ -9,6 +10,7 @@ use url::Url;
 pub struct SubdirTok {
     pub current_url: Url,
     pub paths: Vec<Tendril<tendril::fmt::UTF8, NonAtomic>>,
+    unique_set: HashSet<Url>,
 }
 
 impl SubdirTok {
@@ -16,6 +18,7 @@ impl SubdirTok {
         Self {
             current_url,
             paths: Default::default(),
+            unique_set: Default::default(),
         }
     }
 
@@ -47,10 +50,14 @@ impl Tok for SubdirTok {
     }
 
     fn process(&mut self, attribs: RefCell<Vec<Attribute>>, _: RefCell<Vec<Handle>>) {
-        let SubdirTok { paths, current_url } = self;
+        let SubdirTok {
+            paths,
+            current_url,
+            unique_set,
+        } = self;
 
         let current_path =
-            normalize_path({ current_url.path_segments().unwrap() }).expect("invalid path");
+            normalize_path(current_url.path_segments().unwrap()).expect("invalid path");
 
         attribs
             .into_inner()
@@ -60,12 +67,21 @@ impl Tok for SubdirTok {
                 let s = &href.value.to_string();
                 // TODO: more efficient url parsing
                 let url = match current_url.join(s) {
-                    Ok(url) => url,
+                    Ok(mut url) => {
+                        url.set_query(None);
+                        url.set_fragment(None);
+                        url
+                    }
                     Err(e) => {
                         eprintln!("Error parsing '{}': {}", s, e);
                         return;
                     }
                 };
+                if unique_set.contains(&url) {
+                    debug!("duplicate url {}", url);
+                    return;
+                }
+
                 if url.scheme() != current_url.scheme()
                     || url.host_str() != current_url.host_str()
                     || url.port_or_known_default().unwrap()
@@ -96,6 +112,7 @@ impl Tok for SubdirTok {
                     }
                 }
 
+                unique_set.insert(url);
                 paths.push(href.value);
             });
     }
