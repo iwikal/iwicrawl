@@ -42,6 +42,21 @@ fn main() {
         .init()
         .unwrap();
 
+    unsafe {
+        use libc::*;
+        let mut r = rlimit {
+            rlim_cur: 0,
+            rlim_max: 0,
+        };
+        getrlimit(RLIMIT_NOFILE, &mut r);
+        warn!(
+            "increasing RLIMIT_NOFILE from {} to {}",
+            r.rlim_cur, r.rlim_max
+        );
+        r.rlim_cur = r.rlim_max;
+        setrlimit(RLIMIT_NOFILE, &r);
+    }
+
     use hyper::Uri;
     let uri = matches.value_of("URI").unwrap();
     let uri = uri.parse::<Uri>().unwrap_or_else(|e| {
