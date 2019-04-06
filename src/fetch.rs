@@ -68,19 +68,20 @@ type FutBox = Box<dyn Future<Item = u64, Error = Error> + Send>;
 
 fn peek_file(client: &'static MyClient, url: Url) -> FutBox {
     let fut = follow_redirects(client, Method::HEAD, url);
-    let fut = fut.and_then(|(redirected_url, res)| {
-        let headers = res.headers();
-        let bytes = headers
-            .get(CONTENT_LENGTH)
-            .ok_or_else(|| CliError(format!("content length missing")))
-            .context(format!("'{}'", redirected_url))?
-            .to_str()
-            .context(format!("'{}'", redirected_url))?
-            .parse::<u64>()
-            .context(format!("'{}'", redirected_url))?;
-        println!("{:<20} {}", bytes, redirected_url);
-        Ok(bytes)
-    });
+    let fut = fut.and_then(
+        |(redirected_url, res)| match res.headers().get(CONTENT_LENGTH) {
+            Some(header) => {
+                let bytes = header
+                    .to_str()
+                    .context(format!("'{}'", redirected_url))?
+                    .parse::<u64>()
+                    .context(format!("'{}'", redirected_url))?;
+                println!("{:<20} {}", bytes, redirected_url);
+                Ok(bytes)
+            }
+            None => Ok(0),
+        },
+    );
     Box::new(fut)
 }
 
@@ -91,24 +92,24 @@ fn handle_html_dir(
 ) -> Result<impl Future<Item = u64, Error = Error> + Send, Error> {
     let subdirs = extract_subdirs(body, url)?;
     let SubdirTok {
-        paths, current_url, ..
+        subdirectories,
+        files,
+        current_url,
     } = subdirs;
-    let subfutures = {
-        let current_url = current_url.clone();
-        paths.into_iter().map(move |path| {
-            let path_str = &path.to_string();
-            let next_url = current_url.join(path_str).unwrap();
-            if path_str.ends_with("/") {
-                get_directory(client, next_url)
-            } else {
-                peek_file(client, next_url)
-            }
-            .or_else(|e| {
+    let subfutures = subdirectories
+        .into_iter()
+        .map(move |next_url| get_directory(client, next_url))
+        .chain(
+            files
+                .into_iter()
+                .map(move |next_url| peek_file(client, next_url)),
+        )
+        .map(|f| {
+            f.or_else(|e| {
                 error!("{}", recursive_cause(e.as_fail()));
                 Ok(0)
             })
-        })
-    };
+        });
     let sum_children = join_all(subfutures).map(move |subdirs| {
         let sum = subdirs.iter().fold(0, |acc, cur| acc + cur);
         println!("{:<20} {}", sum, current_url);
@@ -118,7 +119,7 @@ fn handle_html_dir(
 }
 
 fn get_directory(client: &'static MyClient, url: Url) -> FutBox {
-    info!("getting {}", url);
+    debug!("getting {}", url);
     let fut = follow_redirects(client, Method::GET, url)
         .and_then(move |(redirected_url, res)| {
             let headers = res.headers();

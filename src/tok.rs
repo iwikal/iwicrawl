@@ -1,6 +1,6 @@
 use html5ever::parse_document;
 use html5ever::rcdom::{Handle, RcDom};
-use html5ever::tendril::{self, NonAtomic, Tendril, TendrilSink};
+use html5ever::tendril::TendrilSink;
 use std::collections::HashSet;
 use toks::prelude::*;
 use toks::{recursion, Tok};
@@ -9,16 +9,16 @@ use url::Url;
 #[derive(Debug)]
 pub struct SubdirTok {
     pub current_url: Url,
-    pub paths: Vec<Tendril<tendril::fmt::UTF8, NonAtomic>>,
-    unique_set: HashSet<Url>,
+    pub subdirectories: HashSet<Url>,
+    pub files: HashSet<Url>,
 }
 
 impl SubdirTok {
     pub fn new(current_url: Url) -> Self {
         Self {
             current_url,
-            paths: Default::default(),
-            unique_set: Default::default(),
+            subdirectories: Default::default(),
+            files: Default::default(),
         }
     }
 
@@ -51,9 +51,9 @@ impl Tok for SubdirTok {
 
     fn process(&mut self, attribs: RefCell<Vec<Attribute>>, _: RefCell<Vec<Handle>>) {
         let SubdirTok {
-            paths,
             current_url,
-            unique_set,
+            subdirectories,
+            files,
         } = self;
 
         let current_path =
@@ -77,43 +77,45 @@ impl Tok for SubdirTok {
                         return;
                     }
                 };
-                if unique_set.contains(&url) {
-                    debug!("duplicate url {}", url);
-                    return;
-                }
 
-                if url.scheme() != current_url.scheme()
-                    || url.host_str() != current_url.host_str()
-                    || url.port_or_known_default().unwrap()
-                        != current_url.port_or_known_default().unwrap()
-                {
-                    return;
-                }
-
-                let mut segments = match url.path_segments() {
-                    Some(x) => x,
-                    None => return,
-                };
-                match segments.try_fold(0_u32, |acc, cur| match cur {
-                    "" | "." => Some(acc),
-                    ".." => acc.checked_sub(1),
-                    _ => {
-                        if let Some(seg) = current_path.get(acc as usize) {
-                            if seg != &cur {
-                                return None;
-                            }
-                        }
-                        Some(acc + 1)
-                    }
-                }) {
-                    Some(depth) if depth > current_path.len() as u32 => {}
-                    _ => {
+                if url.path().ends_with("/") {
+                    if url.scheme() != current_url.scheme()
+                        || url.host_str() != current_url.host_str()
+                        || url.port_or_known_default().unwrap()
+                            != current_url.port_or_known_default().unwrap()
+                    {
                         return;
                     }
-                }
 
-                unique_set.insert(url);
-                paths.push(href.value);
+                    let mut segments = match url.path_segments() {
+                        Some(x) => x,
+                        None => return,
+                    };
+                    match segments.try_fold(0_u32, |acc, cur| match cur {
+                        "" | "." => Some(acc),
+                        ".." => acc.checked_sub(1),
+                        _ => {
+                            if let Some(seg) = current_path.get(acc as usize) {
+                                if seg != &cur {
+                                    return None;
+                                }
+                            }
+                            Some(acc + 1)
+                        }
+                    }) {
+                        Some(depth) if depth > current_path.len() as u32 => {}
+                        _ => {
+                            return;
+                        }
+                    }
+                    if !subdirectories.insert(url) {
+                        debug!("duplicate link");
+                    }
+                } else {
+                    if !files.insert(url) {
+                        debug!("duplicate link");
+                    }
+                }
             });
     }
 }
