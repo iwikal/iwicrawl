@@ -18,6 +18,8 @@ fn extract_subdirs(body: hyper::Chunk, url: Url) -> Result<SubdirTok, Error> {
 type MyClient = Client<HttpsConnector<hyper::client::HttpConnector>>;
 
 const MAX_REDIRECTIONS: u8 = 16;
+const USER_AGENT: &str = concat!(env!("CARGO_PKG_NAME"), "/", env!("CARGO_PKG_VERSION"));
+
 fn follow_redirects(
     client: &'static MyClient,
     method: Method,
@@ -29,6 +31,7 @@ fn follow_redirects(
         let request = Request::builder()
             .uri(uri.clone())
             .method(method.clone())
+            .header("User-Agent", USER_AGENT)
             .body(Default::default())
             .unwrap();
 
