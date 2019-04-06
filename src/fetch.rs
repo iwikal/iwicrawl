@@ -1,6 +1,6 @@
-use crate::error::CliError;
+use crate::error::{recursive_cause, CliError};
 use crate::tok::SubdirTok;
-use failure::{Error, Fail};
+use failure::{Error, Fail, ResultExt};
 use futures::future::*;
 use hyper::http::Method;
 use hyper::{header::*, rt::Stream, Client, Request, Response};
@@ -8,8 +8,10 @@ use hyper_tls::HttpsConnector;
 use url::Url;
 
 fn extract_subdirs(body: hyper::Chunk, url: Url) -> Result<SubdirTok, Error> {
-    let s = std::str::from_utf8(&body)
-        .map_err(|e| e.context(format!("'{}': failed to parse body", url)))?;
+    let s = std::str::from_utf8(&body).map_err(|e| {
+        e.context(format!("failed to parse body"))
+            .context(format!("'{}'", url))
+    })?;
     Ok(SubdirTok::from_body(url, s))
 }
 
@@ -32,7 +34,7 @@ fn follow_redirects(
 
         client
             .request(request)
-            .map_err(move |e| e.context(format!("'{}'", uri)).into())
+            .map_err(|e| e.into())
             .and_then(move |res| {
                 let status = res.status();
 
@@ -40,21 +42,22 @@ fn follow_redirects(
                     Ok(Loop::Break((url, res)))
                 } else if status.is_redirection() {
                     if redirections_acc >= MAX_REDIRECTIONS {
-                        Err(CliError(format!("'{}': too many redirections", url)).into())
+                        Err(CliError(format!("too many redirections")).into())
                     } else {
                         let headers = res.headers();
                         let s = headers
                             .get(LOCATION)
-                            .ok_or_else(|| CliError(format!("'{}': redirected to nowhere", url)))?
+                            .ok_or_else(|| CliError(format!("redirected to nowhere")))?
                             .to_str()?;
                         let new_url = url.join(s)?;
                         info!("{} redirected to {}: {}", url, new_url, status);
                         Ok(Loop::Continue((new_url, redirections_acc + 1)))
                     }
                 } else {
-                    Err(CliError(format!("'{}': {}", url, status)).into())
+                    Err(CliError(format!("{}", status)).into())
                 }
             })
+            .map_err(move |e: Error| e.context(format!("'{}'", uri)).into())
     })
 }
 
@@ -66,9 +69,12 @@ fn peek_file(client: &'static MyClient, url: Url) -> FutBox {
         let headers = res.headers();
         let bytes = headers
             .get(CONTENT_LENGTH)
-            .ok_or_else(|| CliError(format!("content length missing")))?
-            .to_str()?
-            .parse::<u64>()?;
+            .ok_or_else(|| CliError(format!("content length missing")))
+            .context(format!("'{}'", redirected_url))?
+            .to_str()
+            .context(format!("'{}'", redirected_url))?
+            .parse::<u64>()
+            .context(format!("'{}'", redirected_url))?;
         println!("{:<20} {}", bytes, redirected_url);
         Ok(bytes)
     });
@@ -95,15 +101,7 @@ fn handle_html_dir(
                 peek_file(client, next_url)
             }
             .or_else(|e| {
-                let f = e.as_fail();
-                match f.cause() {
-                    Some(cause) => {
-                        error!("{}: {}", e, cause);
-                    }
-                    None => {
-                        error!("{}", e);
-                    }
-                }
+                error!("{}", recursive_cause(e.as_fail()));
                 Ok(0)
             })
         })
@@ -123,8 +121,10 @@ fn get_directory(client: &'static MyClient, url: Url) -> FutBox {
             let headers = res.headers();
             let content_type = headers
                 .get(CONTENT_TYPE)
-                .ok_or_else(|| CliError(format!("content type missing")))?
-                .to_str()?;
+                .ok_or_else(|| CliError(format!("'{}': content type missing", redirected_url)))
+                .context(format!("'{}'", redirected_url))?
+                .to_str()
+                .context(format!("'{}'", redirected_url))?;
             debug!("content type {}", content_type);
             if content_type.starts_with("text/html") {
                 let fut = res
@@ -135,11 +135,11 @@ fn get_directory(client: &'static MyClient, url: Url) -> FutBox {
                 Ok(fut)
             } else {
                 // TODO: Other content types such as json
-                Err(CliError(format!(
-                    "'{}': unrecognised content type '{}'",
-                    redirected_url, content_type
-                ))
-                .into())
+                Err(
+                    CliError(format!("unexpected content type '{}'", content_type))
+                        .context(format!("'{}'", redirected_url))
+                        .into(),
+                )
             }
         })
         .flatten()
@@ -152,5 +152,8 @@ pub fn crawl(url: Url) -> FutBox {
     let connector = HttpsConnector::new(4).unwrap();
     let client = Client::builder().build::<_, hyper::Body>(connector);
     let client = Box::leak(Box::new(client));
-    get_directory(client, url)
+    Box::new(get_directory(client, url).or_else(|e| {
+        error!("{}", recursive_cause(e.as_fail()));
+        Ok(0)
+    }))
 }

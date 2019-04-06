@@ -4,8 +4,6 @@
 extern crate log;
 #[macro_use]
 extern crate html5ever;
-#[macro_use]
-extern crate failure;
 
 use clap::{App, Arg};
 use url::Url;
