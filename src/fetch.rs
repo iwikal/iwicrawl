@@ -1,19 +1,13 @@
 use crate::error::{recursive_cause, CliError};
 use crate::tok::SubdirTok;
+use encoding::label::encoding_from_whatwg_label;
+use encoding::types::DecoderTrap;
 use failure::{Error, Fail, ResultExt};
 use futures::future::*;
 use hyper::http::Method;
 use hyper::{header::*, rt::Stream, Client, Request, Response};
 use hyper_tls::HttpsConnector;
 use url::Url;
-
-fn extract_subdirs(body: hyper::Chunk, url: Url) -> Result<SubdirTok, Error> {
-    let s = std::str::from_utf8(&body).map_err(|e| {
-        e.context(format!("failed to parse body"))
-            .context(format!("'{}'", url))
-    })?;
-    Ok(SubdirTok::from_body(url, s))
-}
 
 type MyClient = Client<HttpsConnector<hyper::client::HttpConnector>>;
 
@@ -86,10 +80,10 @@ fn peek_file(client: &'static MyClient, url: Url) -> FutBox {
 
 fn handle_html_dir(
     client: &'static MyClient,
-    body: hyper::Chunk,
+    body: &str,
     url: Url,
 ) -> Result<impl Future<Item = u64, Error = Error> + Send, Error> {
-    let subdirs = extract_subdirs(body, url)?;
+    let subdirs = SubdirTok::from_body(url, body);
     let SubdirTok {
         paths, current_url, ..
     } = subdirs;
@@ -129,12 +123,24 @@ fn get_directory(client: &'static MyClient, url: Url) -> FutBox {
                 .to_str()
                 .context(format!("'{}'", redirected_url))?;
             debug!("content type {}", content_type);
-            if content_type.starts_with("text/html") {
+            use mime::*;
+            let mime = content_type
+                .parse::<Mime>()
+                .context(format!("'{}'", redirected_url))?;
+            if (mime.type_(), mime.subtype()) == (TEXT, HTML) {
                 let fut = res
                     .into_body()
                     .concat2()
                     .map_err(|e| e.into())
-                    .and_then(move |body| handle_html_dir(client, body, redirected_url));
+                    .and_then(move |body| {
+                        let charset = mime.get_param(CHARSET).unwrap_or(UTF_8);
+                        let encoding = encoding_from_whatwg_label(charset.into()).unwrap();
+                        let body = encoding
+                            .decode(&body, DecoderTrap::Replace)
+                            .map_err(|e| CliError(e.to_string()))
+                            .context(format!("'{}'", redirected_url))?;
+                        handle_html_dir(client, &body, redirected_url)
+                    });
                 Ok(fut)
             } else {
                 // TODO: Other content types such as json
