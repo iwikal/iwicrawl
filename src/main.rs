@@ -19,22 +19,30 @@ fn main() {
         .arg(
             Arg::with_name("verbosity")
                 .short("v")
+                .long("verbose")
                 .multiple(true)
-                .help("increase message verbosity"),
+                .help("Increase message verbosity for each occurrance of the flag"),
         )
         .arg(
-            Arg::with_name("URI")
+            Arg::with_name("quiet")
+                .short("q")
+                .long("quiet")
+                .help("Don't print anything except standard output"),
+        )
+        .arg(
+            Arg::with_name("URL")
                 .index(1)
-                .help("the uri of the directory to crawl")
+                .help("The url of the directory to crawl")
                 .required(true)
                 .takes_value(true),
         )
         .get_matches();
 
     let verbose = matches.occurrences_of("verbosity") as usize;
+    let quiet = matches.is_present("quiet");
     stderrlog::new()
         .module(module_path!())
-        // .quiet(quiet)
+        .quiet(quiet)
         .verbosity(verbose)
         // .timestamp(ts)
         .init()
@@ -58,7 +66,7 @@ fn main() {
     }
 
     use hyper::Uri;
-    let uri = matches.value_of("URI").unwrap();
+    let uri = matches.value_of("URL").unwrap();
     let uri = uri.parse::<Uri>().unwrap_or_else(|e| {
         error!("Invalid url '{}': {}", uri, e);
         std::process::exit(1);
