@@ -118,7 +118,7 @@ fn handle_html_dir(
 }
 
 fn get_directory(client: &'static MyClient, url: Url) -> FutBox {
-    info!("getting {}", url);
+    debug!("getting {}", url);
     let fut = follow_redirects(client, Method::GET, url)
         .and_then(move |(redirected_url, res)| {
             let headers = res.headers();
