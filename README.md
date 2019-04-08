@@ -35,3 +35,8 @@ Finished in 16ms
 
 # Please note
 It sends a HEAD request for each file listed, and I haven't implemented any throttling yet, so it might be a bit of a denial-of-service machine. Use responsibly.
+
+# Installation
+ - [Install cargo](https://crates.io/install)
+ - clone or download this repository
+ - from inside the repository, run `cargo install --path .`
