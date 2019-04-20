@@ -48,7 +48,8 @@ fn main() {
         .init()
         .unwrap();
 
-    if cfg!(unix) {
+    #[cfg(unix)]
+    {
         unsafe {
             use libc::*;
             let mut r = rlimit {
