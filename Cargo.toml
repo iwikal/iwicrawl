@@ -1,8 +1,12 @@
 [package]
 name = "iwicrawl"
+description = "an indexer for open directories"
 version = "0.1.0"
 authors = ["iwikal <e.joel.nordstrom@gmail.com>"]
 edition = "2018"
+readme = "README.md"
+license = "GPL-3.0"
+repository = "https://github.com/iwikal/iwicrawl"
 
 [dependencies]
 clap = "2.32"

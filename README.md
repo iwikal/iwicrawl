@@ -37,5 +37,9 @@ Finished in 16ms
 It sends a HEAD request for each file listed, and I haven't implemented any throttling yet, so it might be a bit of a denial-of-service machine. Use responsibly.
 
 # Installation
+## Pre-compiled executables
+[I've compiled some binaries for windows and linux.](https://github.com/iwikal/iwicrawl/releases)
+I currently don't have any way to test OSX binaries.
+## Using cargo
  - [Install rust](https://rust-lang.org/tools/install)
  - run `cargo install --git https://github.com/iwikal/iwicrawl.git`
