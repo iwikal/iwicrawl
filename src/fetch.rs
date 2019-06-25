@@ -1,8 +1,8 @@
-use crate::error::{recursive_cause, CliError};
+use crate::error::{recursive_cause, Error};
 use crate::tok::SubdirTok;
 use encoding::label::encoding_from_whatwg_label;
 use encoding::types::DecoderTrap;
-use failure::{Error, Fail, ResultExt};
+use failure::{Fail, ResultExt};
 use futures::future::*;
 use hyper::http::Method;
 use hyper::{header::*, rt::Stream, Client, Request, Response};
@@ -18,7 +18,7 @@ fn follow_redirects(
     client: &'static MyClient,
     method: Method,
     url: Url,
-) -> impl Future<Item = (Url, Response<hyper::Body>), Error = Error> {
+) -> impl Future<Item = (Url, Response<hyper::Body>), Error = failure::Error> {
     loop_fn((url, 0), move |(url, redirections_acc)| {
         use hyper::Uri;
         let uri: Uri = url.to_string().parse().unwrap();
@@ -39,26 +39,26 @@ fn follow_redirects(
                     Ok(Loop::Break((url, res)))
                 } else if status.is_redirection() {
                     if redirections_acc >= MAX_REDIRECTIONS {
-                        Err(CliError(format!("too many redirections")).into())
+                        Err(Error::new(format!("too many redirections")).into())
                     } else {
                         let headers = res.headers();
                         let s = headers
                             .get(LOCATION)
-                            .ok_or_else(|| CliError(format!("redirected to nowhere")))?
+                            .ok_or_else(|| Error::new(format!("redirected to nowhere")))?
                             .to_str()?;
                         let new_url = url.join(s)?;
                         info!("{} redirected to {}: {}", url, new_url, status);
                         Ok(Loop::Continue((new_url, redirections_acc + 1)))
                     }
                 } else {
-                    Err(CliError(format!("{}", status)).into())
+                    Err(Error::new(format!("{}", status)).into())
                 }
             })
-            .map_err(move |e: Error| e.context(format!("'{}'", uri)).into())
+            .map_err(move |e: failure::Error| e.context(format!("'{}'", uri)).into())
     })
 }
 
-type FutBox = Box<dyn Future<Item = u64, Error = Error> + Send>;
+type FutBox = Box<dyn Future<Item = u64, Error = failure::Error> + Send>;
 
 fn peek_file(client: &'static MyClient, url: Url) -> FutBox {
     let fut = follow_redirects(client, Method::HEAD, url);
@@ -66,7 +66,7 @@ fn peek_file(client: &'static MyClient, url: Url) -> FutBox {
         let headers = res.headers();
         let bytes = headers
             .get(CONTENT_LENGTH)
-            .ok_or_else(|| CliError(format!("content length missing")))
+            .ok_or_else(|| Error::new(format!("content length missing, status {}", res.status())))
             .context(format!("'{}'", redirected_url))?
             .to_str()
             .context(format!("'{}'", redirected_url))?
@@ -82,7 +82,7 @@ fn handle_html_dir(
     client: &'static MyClient,
     body: &str,
     url: Url,
-) -> Result<impl Future<Item = u64, Error = Error> + Send, Error> {
+) -> Result<impl Future<Item = u64, Error = failure::Error> + Send, failure::Error> {
     let subdirs = SubdirTok::from_body(url, body);
     let SubdirTok {
         paths, current_url, ..
@@ -118,7 +118,7 @@ fn get_directory(client: &'static MyClient, url: Url) -> FutBox {
             let headers = res.headers();
             let content_type = headers
                 .get(CONTENT_TYPE)
-                .ok_or_else(|| CliError(format!("'{}': content type missing", redirected_url)))
+                .ok_or_else(|| Error::new(format!("'{}': content type missing", redirected_url)))
                 .context(format!("'{}'", redirected_url))?
                 .to_str()
                 .context(format!("'{}'", redirected_url))?;
@@ -137,7 +137,7 @@ fn get_directory(client: &'static MyClient, url: Url) -> FutBox {
                         let encoding = encoding_from_whatwg_label(charset.into()).unwrap();
                         let body = encoding
                             .decode(&body, DecoderTrap::Replace)
-                            .map_err(|e| CliError(e.to_string()))
+                            .map_err(|e| Error::new(e.to_string()))
                             .context(format!("'{}'", redirected_url))?;
                         handle_html_dir(client, &body, redirected_url)
                     });
@@ -145,7 +145,7 @@ fn get_directory(client: &'static MyClient, url: Url) -> FutBox {
             } else {
                 // TODO: Other content types such as json
                 Err(
-                    CliError(format!("unexpected content type '{}'", content_type))
+                    Error::new(format!("unexpected content type '{}'", content_type))
                         .context(format!("'{}'", redirected_url))
                         .into(),
                 )

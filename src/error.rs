@@ -1,9 +1,17 @@
 use failure::Fail;
 
 #[derive(Debug, Fail)]
-pub struct CliError(pub String);
+pub struct Error {
+    message: String,
+}
 
-impl Into<i32> for CliError {
+impl Error {
+    pub fn new(message: String) -> Self {
+        Self { message }
+    }
+}
+
+impl Into<i32> for Error {
     fn into(self) -> i32 {
         1
     }
@@ -11,9 +19,9 @@ impl Into<i32> for CliError {
 
 use core::fmt;
 
-impl fmt::Display for CliError {
+impl fmt::Display for Error {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{}", self.0)
+        write!(f, "{}", self.message)
     }
 }
 
