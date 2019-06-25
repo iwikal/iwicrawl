@@ -1,5 +1,6 @@
 use crate::error::{recursive_cause, Error};
 use crate::tok::SubdirTok;
+use crate::Settings;
 use encoding::label::encoding_from_whatwg_label;
 use encoding::types::DecoderTrap;
 use failure::{Fail, ResultExt};
@@ -11,13 +12,13 @@ use url::Url;
 
 type MyClient = Client<HttpsConnector<hyper::client::HttpConnector>>;
 
-const MAX_REDIRECTIONS: u8 = 16;
 const USER_AGENT: &str = concat!(env!("CARGO_PKG_NAME"), "/", env!("CARGO_PKG_VERSION"));
 
 fn follow_redirects(
     client: &'static MyClient,
     method: Method,
     url: Url,
+    max_redirections: i64,
 ) -> impl Future<Item = (Url, Response<hyper::Body>), Error = failure::Error> {
     loop_fn((url, 0), move |(url, redirections_acc)| {
         use hyper::Uri;
@@ -38,8 +39,12 @@ fn follow_redirects(
                 if status.is_success() {
                     Ok(Loop::Break((url, res)))
                 } else if status.is_redirection() {
-                    if redirections_acc >= MAX_REDIRECTIONS {
-                        Err(Error::new(format!("too many redirections")).into())
+                    if max_redirections >= 0 && redirections_acc >= max_redirections {
+                        Err(Error::new(format!(
+                            "too many redirections: {}",
+                            redirections_acc as u64 + 1
+                        ))
+                        .into())
                     } else {
                         let headers = res.headers();
                         let s = headers
@@ -60,8 +65,8 @@ fn follow_redirects(
 
 type FutBox = Box<dyn Future<Item = u64, Error = failure::Error> + Send>;
 
-fn peek_file(client: &'static MyClient, url: Url) -> FutBox {
-    let fut = follow_redirects(client, Method::HEAD, url);
+fn peek_file(client: &'static MyClient, url: Url, settings: &Settings) -> FutBox {
+    let fut = follow_redirects(client, Method::HEAD, url, settings.max_redirections);
     let fut = fut.and_then(|(redirected_url, res)| {
         let headers = res.headers();
         let bytes = headers
@@ -82,6 +87,7 @@ fn handle_html_dir(
     client: &'static MyClient,
     body: &str,
     url: Url,
+    settings: &'static Settings,
 ) -> Result<impl Future<Item = u64, Error = failure::Error> + Send, failure::Error> {
     let subdirs = SubdirTok::from_body(url, body);
     let SubdirTok {
@@ -93,9 +99,9 @@ fn handle_html_dir(
             let path_str = &path.to_string();
             let next_url = current_url.join(path_str).unwrap();
             if path_str.ends_with("/") {
-                get_directory(client, next_url)
+                get_directory(client, next_url, settings)
             } else {
-                peek_file(client, next_url)
+                peek_file(client, next_url, settings)
             }
             .or_else(|e| {
                 error!("{}", recursive_cause(e.as_fail()));
@@ -111,9 +117,9 @@ fn handle_html_dir(
     Ok(sum_children)
 }
 
-fn get_directory(client: &'static MyClient, url: Url) -> FutBox {
+fn get_directory(client: &'static MyClient, url: Url, settings: &'static Settings) -> FutBox {
     debug!("getting {}", url);
-    let fut = follow_redirects(client, Method::GET, url)
+    let fut = follow_redirects(client, Method::GET, url, settings.max_redirections)
         .and_then(move |(redirected_url, res)| {
             let headers = res.headers();
             let content_type = headers
@@ -139,7 +145,7 @@ fn get_directory(client: &'static MyClient, url: Url) -> FutBox {
                             .decode(&body, DecoderTrap::Replace)
                             .map_err(|e| Error::new(e.to_string()))
                             .context(format!("'{}'", redirected_url))?;
-                        handle_html_dir(client, &body, redirected_url)
+                        handle_html_dir(client, &body, redirected_url, settings)
                     });
                 Ok(fut)
             } else {
@@ -157,11 +163,11 @@ fn get_directory(client: &'static MyClient, url: Url) -> FutBox {
     Box::new(fut)
 }
 
-pub fn crawl(url: Url) -> FutBox {
+pub fn crawl(url: Url, settings: &'static Settings) -> FutBox {
     let connector = HttpsConnector::new(4).unwrap();
     let client = Client::builder().build::<_, hyper::Body>(connector);
     let client = Box::leak(Box::new(client));
-    Box::new(get_directory(client, url).or_else(|e| {
+    Box::new(get_directory(client, url, settings).or_else(|e| {
         error!("{}", recursive_cause(e.as_fail()));
         Ok(0)
     }))

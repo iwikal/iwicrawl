@@ -12,8 +12,13 @@ mod error;
 mod fetch;
 mod tok;
 
+pub struct Settings {
+    max_redirections: i64,
+}
+
 fn main() {
     let matches = App::new(env!("CARGO_PKG_NAME"))
+        .max_term_width(80)
         .version(env!("CARGO_PKG_VERSION"))
         .author(env!("CARGO_PKG_AUTHORS"))
         .arg(
@@ -36,6 +41,17 @@ fn main() {
                 .required(true)
                 .takes_value(true),
         )
+        .arg(
+            Arg::with_name("max-redirections")
+                .value_name("max")
+                .long("max-redirections")
+                .default_value("16")
+                .help(
+                    "The maximum number of times a resource may be redirected. \
+                     Provide a negative number to allow infinite redirections",
+                )
+                .takes_value(true),
+        )
         .get_matches();
 
     let verbose = matches.occurrences_of("verbosity") as usize;
@@ -47,6 +63,18 @@ fn main() {
         // .timestamp(ts)
         .init()
         .unwrap();
+
+    let max_redirections = matches
+        .value_of("max-redirections")
+        .map(|v| {
+            v.parse().unwrap_or_else(|_| {
+                error!("max-redirections must be a valid 64-bit integer");
+                std::process::exit(1);
+            })
+        })
+        .unwrap();
+
+    let settings = Box::leak(Box::new(Settings { max_redirections }));
 
     #[cfg(unix)]
     {
@@ -85,7 +113,7 @@ fn main() {
     let current_url = Url::parse(&uri.to_string()).unwrap();
     let start = std::time::Instant::now();
     let mut rt = tokio::runtime::Runtime::new().unwrap();
-    let fut = fetch::crawl(current_url);
+    let fut = fetch::crawl(current_url, settings);
     match rt.block_on(fut) {
         Err(e) => {
             error!("{}", e);
