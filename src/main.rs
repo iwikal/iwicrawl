@@ -74,7 +74,7 @@ fn main() {
         })
         .unwrap();
 
-    let settings = Box::leak(Box::new(Settings { max_redirections }));
+    let settings = Settings { max_redirections };
 
     #[cfg(unix)]
     {

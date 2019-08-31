@@ -10,17 +10,20 @@ use hyper::{header::*, Client, Request, Response};
 use hyper_tls::HttpsConnector;
 use url::Url;
 
-type MyClient = Client<HttpsConnector<hyper::client::HttpConnector>>;
+struct Context {
+    client: Client<HttpsConnector<hyper::client::HttpConnector>>,
+    settings: Settings,
+}
 
 const USER_AGENT: &str =
     concat!(env!("CARGO_PKG_NAME"), "/", env!("CARGO_PKG_VERSION"));
 
 async fn follow_redirects(
-    client: &'static MyClient,
+    context: &Context,
     method: Method,
     url: Url,
-    max_redirections: i64,
 ) -> Result<(Url, Response<hyper::Body>), failure::Error> {
+    let Context { client, settings } = context;
     let mut url = url;
     let mut redirections = 0;
     loop {
@@ -40,7 +43,8 @@ async fn follow_redirects(
             return Ok((url, res));
         } else if status.is_redirection() {
             redirections += 1;
-            if max_redirections >= 0 && redirections >= max_redirections {
+            let max = settings.max_redirections;
+            if max >= 0 && redirections >= max {
                 return Err(Error::new(format!(
                     "too many redirections: {}",
                     redirections as u64
@@ -65,14 +69,9 @@ async fn follow_redirects(
     }
 }
 
-async fn peek_file(
-    client: &'static MyClient,
-    url: Url,
-    settings: &Settings,
-) -> Result<u64, failure::Error> {
+async fn peek_file(context: &Context, url: Url) -> Result<u64, failure::Error> {
     let (redirected_url, res) =
-        follow_redirects(client, Method::HEAD, url, settings.max_redirections)
-            .await?;
+        follow_redirects(context, Method::HEAD, url).await?;
     let headers = res.headers();
     let bytes = headers
         .get(CONTENT_LENGTH)
@@ -96,12 +95,7 @@ fn report_and_default_to_zero(e: failure::Error) -> u64 {
     0
 }
 
-async fn handle_html_dir(
-    client: &'static MyClient,
-    body: &str,
-    url: Url,
-    settings: &'static Settings,
-) -> u64 {
+async fn handle_html_dir(context: &Context, body: &str, url: Url) -> u64 {
     let SubdirTok {
         paths, current_url, ..
     } = SubdirTok::from_body(url, body);
@@ -109,9 +103,9 @@ async fn handle_html_dir(
         let url = current_url.join(&path.to_string()).unwrap();
         async move {
             if url.path().ends_with("/") {
-                get_directory(client, url, settings).await
+                get_directory(context, url).await
             } else {
-                peek_file(client, url, settings).await
+                peek_file(context, url).await
             }
             .unwrap_or_else(report_and_default_to_zero)
         }
@@ -121,14 +115,12 @@ async fn handle_html_dir(
 }
 
 async fn get_directory(
-    client: &'static MyClient,
+    context: &Context,
     url: Url,
-    settings: &'static Settings,
 ) -> Result<u64, failure::Error> {
     debug!("getting {}", url);
     let (redirected_url, res) =
-        follow_redirects(client, Method::GET, url, settings.max_redirections)
-            .await?;
+        follow_redirects(context, Method::GET, url).await?;
     let headers = res.headers();
     let content_type = headers
         .get(CONTENT_TYPE)
@@ -151,7 +143,7 @@ async fn get_directory(
             .decode(&body, DecoderTrap::Replace)
             .map_err(|e| Error::new(e.to_string()))
             .context(format!("'{}'", redirected_url))?;
-        Ok(handle_html_dir(client, &body, redirected_url, settings).await)
+        Ok(handle_html_dir(context, &body, redirected_url).await)
     } else {
         // TODO: Other content types such as json
         Err(
@@ -162,11 +154,12 @@ async fn get_directory(
     }
 }
 
-pub async fn crawl(url: Url, settings: &'static Settings) -> u64 {
+pub async fn crawl(url: Url, settings: Settings) -> u64 {
     let connector = HttpsConnector::new().unwrap();
     let client = Client::builder().build::<_, hyper::Body>(connector);
-    let client = Box::leak(Box::new(client));
-    get_directory(client, url, settings)
+    let context = Context { client, settings };
+
+    get_directory(&context, url)
         .await
         .unwrap_or_else(report_and_default_to_zero)
 }
