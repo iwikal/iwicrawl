@@ -1,6 +1,6 @@
 # iwicrawl - an indexer for open directories
 Inspired by [a different project](https://github.com/KoalaBear84/OpenDirectoryDownloader), I set out to write a clone with less features, less polish, and less sophisticated parsing.
-The result is a command line tool that you feed a url, and it barfs out all subdirectories and files listed, together with their corresponding sizes in bytes.
+The result is a command line tool that you feed a url, and it barfs out all subdirectories and files listed, in no particular order, together with their corresponding sizes in bytes.
 A bit like the unix tool `du`, but for open directories.
 
 # Example
