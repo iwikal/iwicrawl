@@ -12,7 +12,8 @@ use url::Url;
 
 type MyClient = Client<HttpsConnector<hyper::client::HttpConnector>>;
 
-const USER_AGENT: &str = concat!(env!("CARGO_PKG_NAME"), "/", env!("CARGO_PKG_VERSION"));
+const USER_AGENT: &str =
+    concat!(env!("CARGO_PKG_NAME"), "/", env!("CARGO_PKG_VERSION"));
 
 async fn follow_redirects(
     client: &'static MyClient,

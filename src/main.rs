@@ -106,7 +106,8 @@ fn main() {
         parts.scheme = Some(hyper::http::uri::Scheme::HTTP);
     }
     if parts.path_and_query == None {
-        parts.path_and_query = Some(hyper::http::uri::PathAndQuery::from_static("/"));
+        parts.path_and_query =
+            Some(hyper::http::uri::PathAndQuery::from_static("/"));
     }
 
     let uri = Uri::from_parts(parts).unwrap();

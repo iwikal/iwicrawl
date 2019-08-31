@@ -23,7 +23,8 @@ impl SubdirTok {
     }
 
     pub fn from_body(url: Url, body: &str) -> Self {
-        let dom = parse_document(RcDom::default(), Default::default()).one(body);
+        let dom =
+            parse_document(RcDom::default(), Default::default()).one(body);
         let mut subdir_tok = SubdirTok::new(url);
         recursion(&mut vec![&mut subdir_tok], dom.document);
         subdir_tok
@@ -49,15 +50,19 @@ impl Tok for SubdirTok {
         qn.local == local_name!("a")
     }
 
-    fn process(&mut self, attribs: RefCell<Vec<Attribute>>, _: RefCell<Vec<Handle>>) {
+    fn process(
+        &mut self,
+        attribs: RefCell<Vec<Attribute>>,
+        _: RefCell<Vec<Handle>>,
+    ) {
         let SubdirTok {
             paths,
             current_url,
             unique_set,
         } = self;
 
-        let current_path =
-            normalize_path(current_url.path_segments().unwrap()).expect("invalid path");
+        let current_path = normalize_path(current_url.path_segments().unwrap())
+            .expect("invalid path");
 
         attribs
             .into_inner()
