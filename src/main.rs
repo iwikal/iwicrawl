@@ -112,14 +112,8 @@ fn main() {
     let uri = Uri::from_parts(parts).unwrap();
     let current_url = Url::parse(&uri.to_string()).unwrap();
     let start = std::time::Instant::now();
-    let mut rt = tokio::runtime::Runtime::new().unwrap();
+    let rt = tokio::runtime::Runtime::new().unwrap();
     let fut = fetch::crawl(current_url, settings);
-    match rt.block_on(fut) {
-        Err(e) => {
-            error!("{}", e);
-        }
-        Ok(_) => {
-            eprintln!("Finished in {}ms", start.elapsed().as_millis());
-        }
-    }
+    rt.block_on(fut);
+    eprintln!("Finished in {}ms", start.elapsed().as_millis());
 }
