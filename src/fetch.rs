@@ -109,7 +109,10 @@ async fn handle_html_dir(context: &Context, body: &str, url: Url) -> u64 {
             }
             .unwrap_or_else(report_and_default_to_zero)
         }
-    })).await.iter().fold(0, |acc, cur| acc + cur);
+    }))
+    .await
+    .iter()
+    .fold(0, |acc, cur| acc + cur);
     println!("{:<20} {}", sum, current_url);
     sum
 }
